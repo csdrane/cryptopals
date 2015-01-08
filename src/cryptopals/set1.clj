@@ -103,23 +103,6 @@
                   (helper (inc key) best-decrypted-text best-score))))]
       (helper 1 "" 0))))
 
-(defn decrypt-single-byte-xor-strings [strings key]
-  "Given a vector of byte strings and a key, returns map of word-score, crypt-text, and key for map with overall highest word-score."
-  (do #_(println strings)
-      (let [crypt-map
-            (fn [encoded-bytes]
-              (let [decoded-bytes (decode-xor-string encoded-bytes key)]
-                {:string encoded-bytes
-                 :score (word-score decoded-bytes)
-                 :key key}))]
-        (reduce (fn [init coll]
-                  (if (< (:score init 0) (word-score coll))
-                    (crypt-map coll)
-                    init))
-                (crypt-map
-                 (first strings))
-                (rest strings)))))
-
 (defn find-xored-string [crypt-text]
   "Given n lines of hex strings, returns sole XOR encoded line."
   (letfn [(helper [crypt-text candidate-text score]

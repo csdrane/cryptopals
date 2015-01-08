@@ -26,8 +26,5 @@
   (is (= (cp/find-xored-string problem-4-data)
          "7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f")))
 
-(deftest decrypt-single-byte-xor-strings
-  (is (= (cp/decrypt-single-byte-xor-strings "7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f" 53))))
-
 (deftest find-xored-single-byte-key
   (is (= (cp/find-xored-single-byte-key "7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f") "Now that the party is jumping\n")))
