@@ -145,11 +145,11 @@
   "Takes list of even number of equally sized lists, returns average Hamming Distance."
   (let [avg (fn [& args] (/ (apply + args) key-size))
         chunks (partition 2 chunks)
-        distances (do (println chunks)
-                      (reduce (fn [init coll]
-                                (conj init (/ (apply hamming-distance coll) key-size)))
-                              [] chunks))]
-    (float (apply avg distances))))
+        normalize (fn [x] (/ x key-size))
+        distances (map normalize
+                       (map (partial apply hamming-distance) chunks))
+        average-distance (float (apply avg distances))]
+    average-distance))
 
 (defn number-chunks [data-length key-size]
   (/ data-length key-size))
