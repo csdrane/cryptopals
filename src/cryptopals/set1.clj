@@ -1,20 +1,7 @@
 (ns cryptopals.set1
   (:require [clojure.string :as str])
-  (:import (java.util Base64 BitSet)
-           (java.math BigInteger)))
-
-(defn hex->base64 [^String s]
-  "Given hex string, returns equivalent base64 string."
-  (.encodeToString (Base64/getEncoder) (.toByteArray (BigInteger. s 16))))
-
-(defn base64->string [^String s]
-  "Given base64 string, returns ASCII string."
-  (let [base64 (apply str (str/split-lines s))]
-    (String. (.decode (Base64/getDecoder) base64))))
-
-(defn hex->binary [^String s]
-  "Given hex string, returns binary string."
-  (.toString (BigInteger. s 16) 2))
+  (:import [java.math BigInteger]
+           [org.apache.commons.codec.binary Base64]))
 
 (def characters
   (concat (map char (range 48 58)) (map char (range 97 103))))
@@ -23,6 +10,38 @@
   (zipmap
    characters
    (range)))
+
+(defn slurp-bytes [path]
+  "Reads file at path and returns Java byte array."
+  (let [f (java.io.File. path)
+        ary (byte-array (.length f))
+        is (java.io.FileInputStream. f)]
+    (.read is ary)
+    (.close is)
+    ary))
+
+(defn hex->base64 [^String s]
+  "Given hex string, returns equivalent base64 string."
+  (Base64/encodeBase64String (.toByteArray (BigInteger. s 16))))
+
+(defn decode-base64 [byte-array]
+  "Given base64 byte-array, returns decoded byte-array."
+  (Base64/decodeBase64 byte-array))
+
+(defn decode-base64-string [^String s]
+  (String. (decode-base64 (.getBytes (String. s)))))
+
+(defn hex->binary [^String s]
+  "Given hex string, returns binary string."
+  (.toString (BigInteger. s 16) 2))
+
+(defn load-file-to-byte-array [^String path]
+  (let [f (java.io.File. path)
+        ary (byte-array (.length f))
+        is (java.io.FileInputStream. f)]
+    (.read is ary)
+    (.close is)
+    ary))
 
 (defn base-10-to-hex
   "Given integer, returns string of one hex byte."
@@ -131,9 +150,14 @@
                         init)) 0 (Long/toBinaryString (apply bit-xor (map int [a b])))))]
     (apply + (map xor-letter a b))))
 
+(defn strip-data [data key-size]
+  {:docstring "Takes string of data and key size, returns data stripped to make even pairs for given key-size."
+   :post [(even? (count %))]} 
+  (drop-last (rem (count data) (* 2 key-size)) data))
+
 (defn get-chunks [^String data ^Integer key-size ^Integer n]
   "Given a string of data, returns a list of 2n key-sized chunks. (2n because the data will be a string representing bytes"
-  (loop [data data
+  (loop [data (strip-data data key-size)
          n n
          coll '()]
     (if (or (empty? data)
@@ -141,9 +165,11 @@
       coll
       (recur (drop key-size data) (dec n) (cons (take key-size data) coll)))))
 
-(defn chunk-distance [chunks key-size]
-  "Takes list of even number of equally sized lists, returns average Hamming Distance."
-  (let [avg (fn [& args] (/ (apply + args) key-size))
+(defn chunk-distance [chunks]
+  {:pre [(even? (count chunks))]
+   :docstring  "Takes list of even number of equally sized lists, returns average Hamming Distance."}
+  (let [key-size (count (first chunks))
+        avg (fn [& args] (/ (apply + args) key-size))
         chunks (partition 2 chunks)
         normalize (fn [x] (/ x key-size))
         distances (map normalize
@@ -156,23 +182,22 @@
 
 (defn data-distance [data key-size]
   (chunk-distance (get-chunks data key-size
-                              (number-chunks (count data) key-size))
-                  key-size))
+                              (number-chunks (count data) key-size))))
 
-(defn break-rotating-xor [crypt-text]
-  (let [key-max-size 40
-        chunk-number 8]                 ; should be even number
-    (letfn [(helper [key-size crypt-text lowest-distance]
-              (let [chunks (get-chunks crypt-text key-size chunk-number)]
-                (if (< key-size key-max-size)
-                  (let [distance (chunk-distance crypt-text key-size chunk-number)
-                        new-lowest-distance (if (< distance (:distance lowest-distance))
-                                              {:key-size key-size
-                                               :distance distance}
-                                              lowest-distance)]
-                    (do #_(println key-size (float distance)) (helper (inc key-size) crypt-text new-lowest-distance)))
-                  lowest-distance)))]
-      (helper 2 crypt-text {:key-size 2 :distance Integer/MAX_VALUE}))))
+;; (defn break-rotating-xor [crypt-text]
+;;   (let [key-max-size 40
+;;         chunk-number 8]                 ; should be even number
+;;     (letfn [(helper [key-size crypt-text lowest-distance]
+;;               (let [chunks (get-chunks crypt-text key-size chunk-number)]
+;;                 (if (< key-size key-max-size)
+;;                   (let [distance (chunk-distance crypt-text key-size chunk-number)
+;;                         new-lowest-distance (if (< distance (:distance lowest-distance))
+;;                                               {:key-size key-size
+;;                                                :distance distance}
+;;                                               lowest-distance)]
+;;                     (do #_(println key-size (float distance)) (helper (inc key-size) crypt-text new-lowest-distance)))
+;;                   lowest-distance)))]
+;;       (helper 2 crypt-text {:key-size 2 :distance Integer/MAX_VALUE}))))
 
 (defn chunk-data [data key-size]
   "Return key-sized chunks for a block of data."
@@ -186,4 +211,4 @@
   (for [chunk chunks]
     (find-xored-string (apply str (map (comp base-10-to-hex int) chunk)))))
 
-;; (find-xored-string (apply str (map (comp base-10-to-hex int) (first (transpose-data (chunk-data (base64->string (slurp "http://cryptopals.com/static/challenge-data/6.txt")) 2))))))
+;; (find-xored-string (apply str (map (comp base-10-to-hex int) (first (transpose-data (chunk-data (decode-base64 (slurp "http://cryptopals.com/static/challenge-data/6.txt")) 2))))))

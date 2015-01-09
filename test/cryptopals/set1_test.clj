@@ -1,18 +1,21 @@
 (ns cryptopals.set1-test
   (:require [clojure.test :refer :all]
             [clojure.string :as str]
-            [cryptopals.set1 :as cp]))
+            [cryptopals.set1 :as cp])
+  (:import ;[java.util Base64]
+           [org.apache.commons.codec.binary Base64]))
 
 (def base-dir (System/getProperty "user.dir"))
 (def problem-4-data (str/split (slurp (str base-dir "/test/cryptopals/4.txt")) #"\s+"))
-(def problem-6-data (cp/base64->string (slurp (str base-dir "/test/cryptopals/6.txt"))))
+(def problem-6-data-loc (str base-dir "/test/cryptopals/6.txt"))
+(def problem-6-data (cp/decode-base64 (cp/slurp-bytes problem-6-data-loc)))
 (def prob-5-text1 "Burning 'em, if you ain't quick and nimble I go\ncrazy when I hear a cymbal")
 
 (deftest hex->base64
   (is (= (cp/hex->base64 "49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d") "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t")))
 
-(deftest base64->string
-  (is (= (cp/base64->string "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t")
+(deftest decode-base64
+  (is (= (cp/decode-base64-string "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t")
          "I'm killing your brain like a poisonous mushroom")))
 
 (deftest base-10-to-hex
@@ -45,9 +48,16 @@
          '((\[ \] \\) (\x \y \z) (\a \b \c) (\1 \2 \3)))))
 
 (deftest chunk-distance
-  (is (> 0.10  (Math/abs ( - 4.6666665 (cp/chunk-distance '((\[ \] \\) (\x \y \z) (\a \b \c) (\1 \2 \3)) 3))))))
+  (is (> 0.10  (Math/abs ( - 1.55 (cp/chunk-distance '((\[ \] \\) (\x \y \z) (\a \b \c) (\1 \2 \3))))))))
 
-(for [key (range 2 40)]
-  (do (println key "-" (cp/data-distance problem-6-data key))))
+;; (for [key (range 2 40)]
+;;   (do (println key "-" (cp/data-distance problem-6-data key))))
 
-(cp/data-distance '(1 2 2 3 3 4 4 5) 2)
+(every? true? (map = (map int problem-6-data)
+      (Base64/decodeBase64 (let [f (java.io.File. problem-6-data-loc)
+                                 ary (byte-array (.length f))
+                                 is (java.io.FileInputStream. f)]
+                             (.read is ary)
+                             (.close is)
+                             ary))))
+
