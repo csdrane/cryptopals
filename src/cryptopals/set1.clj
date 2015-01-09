@@ -33,7 +33,7 @@
                 (clojure.string/join (reverse acc))
                 (recur (int (/ num 16))
                        (conj acc (nth characters (mod num 16))))))]
-    (if (= 0 (count hexnum))
+    (if (= 1 (count hexnum))
       (str "0" hexnum)
       hexnum)))
 
@@ -123,12 +123,6 @@
                 (helper (rest string) (drop 1 (take 4 (cycle key))) (str coll xored-byte)))))]
     (helper string key "")))
 
-(def prob-5-text1 "Burning 'em, if you ain't quick and nimble I go\ncrazy when I hear a cymbal")
-
-(repeating-xor prob-5-text1 "ICE")
-
-;; 0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20690a652e2c4f2a3124333a653e2b2027630c692b20283165286326302e27282f
-
 (defn hamming-distance [a b]
   (letfn [(xor-letter [a b]
             (reduce (fn [init coll]
@@ -137,11 +131,8 @@
                         init)) 0 (Long/toBinaryString (apply bit-xor (map int [a b])))))]
     (apply + (map xor-letter a b))))
 
-(hamming-distance "this is a test" "wokka wokka!!!")
-;; 37
-
-(defn get-chunks [data key-size n]
-  "Given a string of data, returns a list of n key-sized chunks"
+(defn get-chunks [^String data ^Integer key-size ^Integer n]
+  "Given a string of data, returns a list of 2n key-sized chunks. (2n because the data will be a string representing bytes"
   (loop [data data
          n n
          coll '()]
@@ -150,13 +141,23 @@
       coll
       (recur (drop key-size data) (dec n) (cons (take key-size data) coll)))))
 
-(defn chunk-distance [data key-size n]
-  (let [avg (fn [& args] (/ (apply + args) (count args)))
-        chunks (get-chunks data key-size n)
-        distances (reduce (fn [init coll]
-                            (conj init (apply hamming-distance coll)))
-                          [] (partition 2 chunks))]
-    (apply avg distances)))
+(defn chunk-distance [chunks key-size]
+  "Takes list of even number of equally sized lists, returns average Hamming Distance."
+  (let [avg (fn [& args] (/ (apply + args) key-size))
+        chunks (partition 2 chunks)
+        distances (do (println chunks)
+                      (reduce (fn [init coll]
+                                (conj init (/ (apply hamming-distance coll) key-size)))
+                              [] chunks))]
+    (float (apply avg distances))))
+
+(defn number-chunks [data-length key-size]
+  (/ data-length key-size))
+
+(defn data-distance [data key-size]
+  (chunk-distance (get-chunks data key-size
+                              (number-chunks (count data) key-size))
+                  key-size))
 
 (defn break-rotating-xor [crypt-text]
   (let [key-max-size 40
