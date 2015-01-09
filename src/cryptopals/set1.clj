@@ -1,6 +1,9 @@
 (ns cryptopals.set1
   (:require [clojure.string :as str])
-  (:import [java.math BigInteger]
+  (:import [java.lang Byte]
+           [java.util BitSet]
+           [java.math BigInteger]
+           [javax.xml.bind DatatypeConverter]
            [org.apache.commons.codec.binary Base64]))
 
 (def characters
@@ -10,6 +13,13 @@
   (zipmap
    characters
    (range)))
+
+(def actual-words (set
+                   (str/split
+                    (slurp "/usr/share/dict/words")
+                    #"\s+")))
+
+(defn avg [& args] (/ (apply + args) (count args)))
 
 (defn slurp-bytes [path]
   "Reads file at path and returns Java byte array."
@@ -31,17 +41,12 @@
 (defn decode-base64-string [^String s]
   (String. (decode-base64 (.getBytes (String. s)))))
 
-(defn hex->binary [^String s]
-  "Given hex string, returns binary string."
-  (.toString (BigInteger. s 16) 2))
-
-(defn load-file-to-byte-array [^String path]
-  (let [f (java.io.File. path)
-        ary (byte-array (.length f))
-        is (java.io.FileInputStream. f)]
-    (.read is ary)
-    (.close is)
-    ary))
+(defn parse-hex-string [string] 
+  (letfn [(abs [x] (if (neg? x) (* -1 x)) x)]
+    (map #(if (<= % 0)
+            (+ (abs %) 128)
+            %)
+         (DatatypeConverter/parseHexBinary string))))
 
 (defn base-10-to-hex
   "Given integer, returns string of one hex byte."
@@ -56,10 +61,6 @@
       (str "0" hexnum)
       hexnum)))
 
-(defn fixed-xor [^String s1 ^String s2]
-  "Given two hex byte strings, returns XOR as string"
-  (.toString (.xor (BigInteger. s1 16) (BigInteger. s2 16)) 16))
-
 (defn score-text [^String text]
   "Given string, returns hash map of character frequency."
   (sort-by val >
@@ -72,32 +73,15 @@
                          (helper (rest text) updated-counts))))]
              (helper text {}))))
 
-(score-text "has been XORd against a single character. Find the key, decrypt the message. You can do this by hand. But dont: write code to do it for you. How? Devise some method for scoring a piece of English plaintext. Character frequency is a good metric. Evaluate each output and choose the one with the best score.")
+(def xor bit-xor)
 
-(defn big-xor [^String string ^String byte]
-  "Given byte string and hex string, return XOR of byte applied to entire string."
-  (do #_(println string byte)
-      (letfn [(helper [input byte output]
-                (if (empty? input)
-                  output
-                  (do #_(println input byte output)
-                      (let [xored-byte (bit-xor (Integer/parseInt (subs input 0 2) 16) byte)
-                            new-input (apply str (drop 2 input))
-                            new-output (conj output xored-byte)]
-                        (do
-                          #_(println xored-byte new-input new-output)
-                          (helper new-input byte new-output))))))]
-        (helper string byte []))))
+(defn xor-array [byte-array byte]
+  "Given Java byte and byte[], returns XOR of singular byte applied to each byte in byte[]. Function returns ordinal values but can be converted to binary by mapping Integer/toBinaryString" 
+  (map xor byte-array (repeat byte)))
 
-(defn decode-xor-string [^String s ^String k]
-  "Takes hex string and hex byte, calls big-xor, and returns decoded ASCII string."
-  (apply str (map (comp char #(Integer/parseInt %) str)
-        (big-xor s k))))
-
-(def actual-words (set
-                   (str/split
-                    (slurp "/usr/share/dict/words")
-                    #"\s+")))
+(defn decode-xor-byte [s k]
+  "Takes hex string and hex byte, calls xor-array, and returns decoded text as ASCII."
+  (apply str (map char (xor-array s k))))
 
 (defn word-score [^String decoded-bytes]
   "Takes decoded byte string, returns number of English words identified in decrypted byte string."
@@ -115,39 +99,27 @@
     (letfn [(helper [key decrypted-text score]
               (if (> key key-upper-bound)
                 decrypted-text
-                (let [new-decrypted-text (decode-xor-string crypt-text key)
+                (let [new-decrypted-text (decode-xor-byte crypt-text key)
                       new-score (word-score new-decrypted-text )
                       best-decrypted-text (if (> new-score score) new-decrypted-text decrypted-text)
                       best-score (max new-score score)]
                   (helper (inc key) best-decrypted-text best-score))))]
       (helper 1 "" 0))))
 
-(defn find-xored-string [crypt-text]
-  "Given n lines of hex strings, returns sole XOR encoded line."
-  (letfn [(helper [crypt-text candidate-text score]
-            (if (empty? crypt-text)
-              candidate-text
-              (let [new-candidate-text (first crypt-text)
-                    new-score (word-score (find-xored-single-byte-key new-candidate-text))
-                    best-candidate-text (if (> new-score score) new-candidate-text candidate-text)
-                    best-score (max score new-score)]
-                (helper (rest crypt-text) best-candidate-text best-score))))]
-    (helper crypt-text "" 0)))
-
-(defn repeating-xor [string key]
-  (letfn [(helper [string key coll]
-            (if (empty? string)
-              coll
-              (let [xored-byte (base-10-to-hex (apply bit-xor (map int [(first string) (first key)])))]
-                (helper (rest string) (drop 1 (take 4 (cycle key))) (str coll xored-byte)))))]
-    (helper string key "")))
+;; (defn repeating-xor [string key]
+;;   (letfn [(helper [string key coll]
+;;             (if (empty? string)
+;;               coll
+;;               (let [xored-byte (base-10-to-hex (apply bit-xor (map int [(first string) (first key)])))]
+;;                 (helper (rest string) (drop 1 (take 4 (cycle key))) (str coll xored-byte)))))]
+;;     (helper string key "")))
 
 (defn hamming-distance [a b]
   (letfn [(xor-letter [a b]
             (reduce (fn [init coll]
                       (if (= \1 coll)
                         (inc init)
-                        init)) 0 (Long/toBinaryString (apply bit-xor (map int [a b])))))]
+                        init)) 0 (Long/toBinaryString (apply xor (map int [a b])))))]
     (apply + (map xor-letter a b))))
 
 (defn strip-data [data key-size]
@@ -169,7 +141,6 @@
   {:pre [(even? (count chunks))]
    :docstring  "Takes list of even number of equally sized lists, returns average Hamming Distance."}
   (let [key-size (count (first chunks))
-        avg (fn [& args] (/ (apply + args) key-size))
         chunks (partition 2 chunks)
         normalize (fn [x] (/ x key-size))
         distances (map normalize
@@ -203,12 +174,12 @@
   "Return key-sized chunks for a block of data."
   (partition key-size data))
 
-(defn transpose-data [chunks]
-  (apply map str chunks))
+;; (defn transpose-data [chunks]
+;;   (apply map str chunks))
 
-;;; this is wrong!
-(defn decrypt-chunks [chunks]
-  (for [chunk chunks]
-    (find-xored-string (apply str (map (comp base-10-to-hex int) chunk)))))
+;; ;;; this is wrong!
+;; (defn decrypt-chunks [chunks]
+;;   (for [chunk chunks]
+;;     (find-xored-string (apply str (map (comp base-10-to-hex int) chunk)))))
 
 ;; (find-xored-string (apply str (map (comp base-10-to-hex int) (first (transpose-data (chunk-data (decode-base64 (slurp "http://cryptopals.com/static/challenge-data/6.txt")) 2))))))
