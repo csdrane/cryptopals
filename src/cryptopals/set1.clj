@@ -93,8 +93,20 @@
                               init)) 0 decoded-words)]
         score)))
 
+(defn find-xored-string [crypt-text]
+  "Given n lines of hex strings, returns sole XOR encoded line."
+  (letfn [(helper [crypt-text candidate-text score]
+            (if (empty? crypt-text)
+              (apply str (map base-10-to-hex candidate-text))
+              (let [new-candidate-text (first crypt-text)
+                    new-score (word-score (find-xored-single-byte-key new-candidate-text))
+                    best-candidate-text (if (> new-score score) new-candidate-text candidate-text)
+                    best-score (max score new-score)]
+                (helper (rest crypt-text) best-candidate-text best-score))))]
+    (helper crypt-text "" 0)))
+
 (defn find-xored-single-byte-key [crypt-text]
-  "Take vector of byte strings and iterates through keys, returning the best match. "
+  "Take vector of byte arrays and iterates through keys, returning the best match. "
   (let [key-upper-bound 100]
     (letfn [(helper [key decrypted-text score]
               (if (> key key-upper-bound)
@@ -106,13 +118,13 @@
                   (helper (inc key) best-decrypted-text best-score))))]
       (helper 1 "" 0))))
 
-;; (defn repeating-xor [string key]
-;;   (letfn [(helper [string key coll]
-;;             (if (empty? string)
-;;               coll
-;;               (let [xored-byte (base-10-to-hex (apply bit-xor (map int [(first string) (first key)])))]
-;;                 (helper (rest string) (drop 1 (take 4 (cycle key))) (str coll xored-byte)))))]
-;;     (helper string key "")))
+(defn repeating-xor [string key]
+  (letfn [(helper [string key coll]
+            (if (empty? string)
+              coll
+              (let [xored-byte (base-10-to-hex (apply xor (map int [(first string) (first key)])))]
+                (helper (rest string) (drop 1 (take 4 (cycle key))) (str coll xored-byte)))))]
+    (helper string key "")))
 
 (defn hamming-distance [a b]
   (letfn [(xor-letter [a b]
@@ -127,10 +139,13 @@
    :post [(even? (count %))]} 
   (drop-last (rem (count data) (* 2 key-size)) data))
 
-(defn get-chunks [^String data ^Integer key-size ^Integer n]
+(defn number-chunks [data-length key-size]
+  (/ data-length key-size))
+
+(defn get-chunks [^String data ^Integer key-size]
   "Given a string of data, returns a list of 2n key-sized chunks. (2n because the data will be a string representing bytes"
   (loop [data (strip-data data key-size)
-         n n
+         n (number-chunks (count data) key-size)
          coll '()]
     (if (or (empty? data)
             (= 0 n))
@@ -148,38 +163,34 @@
         average-distance (float (apply avg distances))]
     average-distance))
 
-(defn number-chunks [data-length key-size]
-  (/ data-length key-size))
-
 (defn data-distance [data key-size]
-  (chunk-distance (get-chunks data key-size
-                              (number-chunks (count data) key-size))))
+  (chunk-distance (get-chunks data key-size)))
 
-;; (defn break-rotating-xor [crypt-text]
-;;   (let [key-max-size 40
-;;         chunk-number 8]                 ; should be even number
-;;     (letfn [(helper [key-size crypt-text lowest-distance]
-;;               (let [chunks (get-chunks crypt-text key-size chunk-number)]
-;;                 (if (< key-size key-max-size)
-;;                   (let [distance (chunk-distance crypt-text key-size chunk-number)
-;;                         new-lowest-distance (if (< distance (:distance lowest-distance))
-;;                                               {:key-size key-size
-;;                                                :distance distance}
-;;                                               lowest-distance)]
-;;                     (do #_(println key-size (float distance)) (helper (inc key-size) crypt-text new-lowest-distance)))
-;;                   lowest-distance)))]
-;;       (helper 2 crypt-text {:key-size 2 :distance Integer/MAX_VALUE}))))
+(defn get-key-size-rotating-xor [crypt-text]
+  (get (first (sort-by :distance <
+                   (let [key-max-size 40]
+                     (for [key-size (range 1 (inc key-max-size))]
+                       {:key-size key-size :distance (data-distance crypt-text key-size)}))))
+       :key-size))
 
 (defn chunk-data [data key-size]
   "Return key-sized chunks for a block of data."
   (partition key-size data))
 
-;; (defn transpose-data [chunks]
-;;   (apply map str chunks))
+(defn transpose-data [chunks]
+  (apply map list chunks))
 
-;; ;;; this is wrong!
-;; (defn decrypt-chunks [chunks]
-;;   (for [chunk chunks]
-;;     (find-xored-string (apply str (map (comp base-10-to-hex int) chunk)))))
+(defn ic [text]
+  (let [scrubbed-text (filter #(re-matches #"[a-z]" (str %)) (str/lower-case text))
+        text-length (count scrubbed-text)
+        letter-map (reduce (fn [init coll]
+                             (update-in init [coll] (fnil inc 0))) {} scrubbed-text)
+        freq-map (reduce (fn [init [k v]]
+                           (update-in init [k]
+                                      (fn [_] (float (/ (* v (dec v))
+                                                        (* text-length (dec text-length)))))))
+                         {} letter-map)
+        coeff 26]
+(* coeff (apply + (vals freq-map)))))
+(ic "who do you think")
 
-;; (find-xored-string (apply str (map (comp base-10-to-hex int) (first (transpose-data (chunk-data (decode-base64 (slurp "http://cryptopals.com/static/challenge-data/6.txt")) 2))))))
