@@ -93,18 +93,6 @@
                               init)) 0 decoded-words)]
         score)))
 
-(defn find-xored-string [crypt-text]
-  "Given n lines of hex strings, returns sole XOR encoded line."
-  (letfn [(helper [crypt-text candidate-text score]
-            (if (empty? crypt-text)
-              (apply str (map base-10-to-hex candidate-text))
-              (let [new-candidate-text (first crypt-text)
-                    new-score (word-score (find-xored-single-byte-key new-candidate-text))
-                    best-candidate-text (if (> new-score score) new-candidate-text candidate-text)
-                    best-score (max score new-score)]
-                (helper (rest crypt-text) best-candidate-text best-score))))]
-    (helper crypt-text "" 0)))
-
 (defn find-xored-single-byte-key [crypt-text]
   "Take vector of byte arrays and iterates through keys, returning the best match. "
   (let [key-upper-bound 100]
@@ -117,6 +105,18 @@
                       best-score (max new-score score)]
                   (helper (inc key) best-decrypted-text best-score))))]
       (helper 1 "" 0))))
+
+(defn find-xored-string [crypt-text]
+  "Given n lines of hex strings, returns sole XOR encoded line."
+  (letfn [(helper [crypt-text candidate-text score]
+            (if (empty? crypt-text)
+              (apply str (map base-10-to-hex candidate-text))
+              (let [new-candidate-text (first crypt-text)
+                    new-score (word-score (find-xored-single-byte-key new-candidate-text))
+                    best-candidate-text (if (> new-score score) new-candidate-text candidate-text)
+                    best-score (max score new-score)]
+                (helper (rest crypt-text) best-candidate-text best-score))))]
+    (helper crypt-text "" 0)))
 
 (defn repeating-xor [string key]
   (letfn [(helper [string key coll]
@@ -192,5 +192,22 @@
                          {} letter-map)
         coeff 26]
 (* coeff (apply + (vals freq-map)))))
-(ic "who do you think")
 
+(defn ic-cols [col keys]
+  "Takes a data column and vector of keys. Returns key that produces IC closest to the English average of 1.73."
+  (do (println "new column")
+      (letfn [(score-col [key]
+                (ic (map char (map xor col (repeat key)))))
+              (normalize [x] (Math/abs (- 1.73 x)))
+              (score-key [i c]
+                (let [new-score (score-col c)]
+                  (if (< (normalize (get i :ic 0))
+                         (normalize new-score))
+                    (do (println {:ic new-score
+                                  :key (char c)})
+                        i)
+                    (do (println {:ic new-score
+                                  :key  (char c)})
+                        {:ic new-score
+                         :key c}))))]
+        (reduce score-key {} keys))))
