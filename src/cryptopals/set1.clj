@@ -1,10 +1,16 @@
 (ns cryptopals.set1
-  (:require [clojure.string :as str])
+  (:require [cryptopals.text :as text]
+            [clojure.string :as str])
   (:import [java.lang Byte]
            [java.util BitSet]
            [java.math BigInteger]
+           [java.security SecureRandom]
+           [javax.crypto Cipher KeyGenerator]
+           [javax.crypto.spec IvParameterSpec SecretKeySpec]
            [javax.xml.bind DatatypeConverter]
            [org.apache.commons.codec.binary Base64]))
+
+(def base-dir (System/getProperty "user.dir"))
 
 (def characters
   (concat (map char (range 48 58)) (map char (range 97 103))))
@@ -13,11 +19,6 @@
   (zipmap
    characters
    (range)))
-
-(def actual-words (set
-                   (str/split
-                    (slurp "/usr/share/dict/words")
-                    #"\s+")))
 
 (defn avg [& args] (/ (apply + args) (count args)))
 
@@ -88,7 +89,7 @@
   (do #_(println bytes)
       (let [decoded-words (str/split decoded-bytes #"\s+")
             score (reduce (fn [init coll]
-                            (if (actual-words coll)
+                            (if (text/actual-words coll)
                               (inc init)
                               init)) 0 decoded-words)]
         score)))
@@ -173,41 +174,86 @@
                        {:key-size key-size :distance (data-distance crypt-text key-size)}))))
        :key-size))
 
-(defn chunk-data [data key-size]
-  "Return key-sized chunks for a block of data."
-  (partition key-size data))
-
 (defn transpose-data [chunks]
   (apply map list chunks))
 
-(defn ic [text]
-  (let [scrubbed-text (filter #(re-matches #"[a-z]" (str %)) (str/lower-case text))
-        text-length (count scrubbed-text)
-        letter-map (reduce (fn [init coll]
-                             (update-in init [coll] (fnil inc 0))) {} scrubbed-text)
-        freq-map (reduce (fn [init [k v]]
-                           (update-in init [k]
-                                      (fn [_] (float (/ (* v (dec v))
-                                                        (* text-length (dec text-length)))))))
-                         {} letter-map)
-        coeff 26]
-(* coeff (apply + (vals freq-map)))))
+(defn english-probability [text]
+  (let [text (str/upper-case text)
+        letters (into #{} (keys text/english-frequency))
+        text-letters (filter letters text)
+        non-letters (filter #(not (letters %)) text)
+        spaces (filter #(= % \space) non-letters)
+        non-spaces (filter #(not= % \space) non-letters)
+        error (fn [numerator denominator average-frequency]
+                (Math/abs (- (float (/ (count numerator)
+                                       (count denominator)))
+                             average-frequency)))
+        space-error (error spaces text 0.15)
+        punc-error (error non-spaces text 0.02)
+        letter-error (reduce (fn [i [letter frequency]]
+                                (+ i (* frequency
+                                        (error (filter #{letter} letters)
+                                               text-letters
+                                               frequency)))) 0.0 text/english-frequency)]
+    (max (- 1 (+ punc-error space-error letter-error)) 0.0)))
 
-(defn ic-cols [col keys]
-  "Takes a data column and vector of keys. Returns key that produces IC closest to the English average of 1.73."
-  (do (println "new column")
-      (letfn [(score-col [key]
-                (ic (map char (map xor col (repeat key)))))
-              (normalize [x] (Math/abs (- 1.73 x)))
-              (score-key [i c]
-                (let [new-score (score-col c)]
-                  (if (< (normalize (get i :ic 0))
-                         (normalize new-score))
-                    (do (println {:ic new-score
-                                  :key (char c)})
-                        i)
-                    (do (println {:ic new-score
-                                  :key  (char c)})
-                        {:ic new-score
-                         :key c}))))]
-        (reduce score-key {} keys))))
+(defn get-decryption-key [scoring-method transposed-data]
+  (letfn [(get-byte [cipher-text]
+            (first
+             (sort-by :score >
+                      (for [x (range 32 128)]
+                        (let [text (apply str (map char (xor-array cipher-text x)))
+                              score (scoring-method text)
+                              m {:key x :score score}]
+                          m)))))]
+    (apply str (map (comp char :key get-byte)
+                    transposed-data))))
+
+(defn decrypt-with-key [text decrypt-key]
+  (loop [text text
+         key decrypt-key
+         coll ""]
+    (if (empty? text)
+      coll
+      (recur (rest text) (take (count key) (drop 1 (cycle key)))
+             (str coll (char (xor (first text) (int (first key)))))))))
+
+(defn decrypt-AES-ECB [key ciphertext]
+  (let [cipher (. Cipher getInstance "AES/ECB/NoPadding")
+        key (.getBytes (String. key))
+        rawkey (new SecretKeySpec key "AES")]
+    (do (. cipher init (Cipher/DECRYPT_MODE) rawkey)
+        (. cipher doFinal ciphertext))))
+
+(defn count-repeats [ciphertext]
+  "Returns how many times the first 16 bytes occur in cipher text."
+  (dec (let [init-16 (take 16 ciphertext)]
+     (loop [ciphertext ciphertext
+            ctr 0]
+       (if (empty? ciphertext)
+         ctr
+         (let [next-16  (take 16 ciphertext)
+               new-ctr (if (= init-16 next-16)
+                         (inc ctr)
+                         ctr)]
+           (recur (drop 1 ciphertext) new-ctr)))))))
+
+(defn detect-repeats [data]
+  "This is going to double count each instance of a repeat."
+  (loop [data data
+         repeats 0
+         ctr 0]
+    (let [data-len (count data)
+          cycle-data (drop 16
+                           (take (+ data-len 16)
+                                 (cycle data)))
+          stop-when (/ data-len 16)]
+      (if (= stop-when ctr)
+        repeats
+        (recur cycle-data
+               (+ repeats
+                  (count-repeats data))
+               (inc ctr))))))
+
+
+
