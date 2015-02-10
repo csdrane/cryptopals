@@ -4,4 +4,4 @@ My solutions for [Cryptopals](http://cryptopals.com) problem sets 1 and 2, writt
 
 ## License
 
-Eventless is licensed under the MIT License. See LICENSE for more information.
+This project is covered under the MIT License. See LICENSE for more information.
